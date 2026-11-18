@@ -72,8 +72,12 @@ class BudgetedGateway:
         self._fatsecret = fatsecret
         self._budget = budget
 
-    async def search_catalog(self, query: str, *, max_results: int | None = None) -> list[CatalogFood]:
-        return await self._counted(lambda: self._fatsecret.search_catalog(query, max_results=max_results))
+    async def search_catalog(
+        self, query: str, *, max_results: int | None = None, page: int = 0
+    ) -> list[CatalogFood]:
+        return await self._counted(
+            lambda: self._fatsecret.search_catalog(query, max_results=max_results, page=page)
+        )
 
     async def get_food(self, food_id: str) -> Food:
         return await self._counted(lambda: self._fatsecret.get_food(food_id))

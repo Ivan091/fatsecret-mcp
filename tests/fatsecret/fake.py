@@ -59,13 +59,18 @@ class FakeFatSecret:
     def set_search_results(self, query: str, foods: Sequence[CatalogFood]) -> None:
         self._search_results[query] = list(foods)
 
-    async def search_catalog(self, query: str, *, max_results: int | None = None) -> list[CatalogFood]:
+    async def search_catalog(
+        self, query: str, *, max_results: int | None = None, page: int = 0
+    ) -> list[CatalogFood]:
         await self._request()
 
         if self._failure is not None:
             raise self._failure
 
-        return self._search_results.get(query, [])[: max_results or 20]
+        page_size = max_results or 20
+        start = page * page_size
+
+        return self._search_results.get(query, [])[start : start + page_size]
 
     async def get_food(self, food_id: str) -> Food:
         await self._request()

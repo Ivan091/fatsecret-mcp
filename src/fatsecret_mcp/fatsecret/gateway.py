@@ -37,8 +37,10 @@ class RequestToken:
 
 
 class FatSecretGateway(Protocol):
-    async def search_catalog(self, query: str, *, max_results: int | None = None) -> list[CatalogFood]:
-        """The first page of catalog matches, in FatSecret's order; no User credentials needed."""
+    async def search_catalog(
+        self, query: str, *, max_results: int | None = None, page: int = 0
+    ) -> list[CatalogFood]:
+        """One page of catalog matches, zero-based, in FatSecret's order; no User credentials needed."""
         ...
 
     async def get_food(self, food_id: str) -> Food:

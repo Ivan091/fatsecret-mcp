@@ -59,7 +59,7 @@ async def test_a_draft_reuses_the_food_a_search_has_just_fetched(
 
     async with connect("jakub") as client:
         searched = await client.call_tool("search_foods", {"description": "rice"})
-        drafted = await client.call_tool("draft_entries", {"items": [item]})
+        drafted = await client.call_tool("draft_entries", {"items": [item], "meal": "lunch"})
 
     assert not searched.is_error
     assert not drafted.is_error
@@ -94,7 +94,7 @@ async def test_a_cached_food_costs_none_of_the_users_daily_budget(
     async with Client(server) as client:
         searched = await client.call_tool("search_foods", {"description": "rice"})
         again = await client.call_tool("search_foods", {"description": "rice"})
-        drafted = await client.call_tool("draft_entries", {"items": [item]})
+        drafted = await client.call_tool("draft_entries", {"items": [item], "meal": "lunch"})
 
     assert not searched.is_error
     assert not again.is_error

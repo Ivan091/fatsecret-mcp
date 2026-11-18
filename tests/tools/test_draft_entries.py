@@ -128,6 +128,14 @@ def nutella(fatsecret: FakeFatSecret) -> Food:
     return food
 
 
+def meal_for(items: list[dict[str, Any]], meal: str | None) -> str | None:
+    """The given meal, or lunch when the items add new Food Entries and none was given."""
+    if meal is not None or all("change" in item for item in items):
+        return meal
+
+    return "lunch"
+
+
 async def draft(
     client: Client,
     items: list[dict[str, Any]],
@@ -137,7 +145,7 @@ async def draft(
 ) -> dict[str, Any]:
     arguments = {
         "items": items,
-        "meal": meal,
+        "meal": meal_for(items, meal),
         "diary_day": diary_day,
     }
     result = await client.call_tool("draft_entries", arguments)
@@ -179,9 +187,7 @@ async def test_a_draft_shows_amount_assumption_totals_and_the_day_after_without_
 
     assert before.structured_content == after.structured_content
     assert proposed["meal"] == "lunch"
-    assert proposed["meal_suggested"] is True
     assert proposed["diary_day"] == "2026-10-14"
-    assert proposed["previous_day_suggested"] is False
     assert proposed["expires_at"] == "2026-10-14T10:30:00Z"
     assert proposed["items"][0] == {
         "food_id": "rice",
@@ -366,122 +372,23 @@ async def test_a_serving_stays_as_chosen_when_the_food_has_no_serving_in_its_uni
 
 
 @pytest.mark.parametrize(
-    ("hour", "minute", "meal", "previous_day"),
+    ("explicit_meal", "explicit_day", "day"),
     [
-        (0, 0, "snacks", True),
-        (3, 59, "snacks", True),
-        (4, 0, "breakfast", False),
-        (11, 29, "breakfast", False),
-        (11, 30, "lunch", False),
-        (15, 59, "lunch", False),
-        (16, 0, "dinner", False),
-        (20, 59, "dinner", False),
-        (21, 0, "snacks", False),
-        (23, 59, "snacks", False),
+        ("dinner", "2026-10-13", "2026-10-13"),
+        ("snacks", None, "2026-10-14"),
+        ("breakfast", "2026-10-14", "2026-10-14"),
     ],
 )
-async def test_meal_boundaries_and_the_previous_day_question_use_the_users_local_time(
-    connect: Connect,
-    clock: FakeClock,
-    household: Household,
-    rice: Food,
-    hour: int,
-    minute: int,
-    meal: str,
-    previous_day: bool,
-) -> None:
-    local = datetime(
-        year=2026,
-        month=10,
-        day=14,
-        hour=hour,
-        minute=minute,
-        tzinfo=household.user("jakub").timezone,
-    )
-    clock.now = local.astimezone(UTC)
-    items = [{"food_id": rice.id, "serving_id": "rice-100g", "number_of_units": 100}]
-
-    async with connect("jakub") as client:
-        proposed = await draft(client, items)
-
-    assert proposed["meal"] == meal
-    assert proposed["meal_suggested"] is True
-    assert proposed["diary_day"] == "2026-10-14"
-    assert proposed["previous_day_suggested"] is previous_day
-
-
-@pytest.mark.parametrize(
-    ("hour", "minute", "meal"),
-    [
-        (5, 59, "snacks"),
-        (6, 0, "breakfast"),
-        (12, 59, "breakfast"),
-        (13, 0, "lunch"),
-        (18, 59, "lunch"),
-        (19, 0, "dinner"),
-        (22, 59, "dinner"),
-        (23, 0, "snacks"),
-    ],
-)
-async def test_each_user_can_configure_their_meal_hours(
-    household: Household,
-    fatsecret: FakeFatSecret,
-    clock: FakeClock,
-    rice: Food,
-    hour: int,
-    minute: int,
-    meal: str,
-) -> None:
-    settings = household.user("jakub").model_dump()
-    settings["meal_hours"] = {"breakfast": "06:00", "lunch": "13:00", "dinner": "19:00", "snacks": "23:00"}
-    user = User.model_validate(settings)
-    local = datetime(
-        year=2026,
-        month=10,
-        day=14,
-        hour=hour,
-        minute=minute,
-        tzinfo=user.timezone,
-    )
-    clock.now = local.astimezone(UTC)
-    server = build_server(
-        user=user,
-        fatsecret=fatsecret,
-        clock=clock,
-        signing_key=household.signing_key,
-        daily_requests=daily_budget(len(household.users)),
-        food_cache=FoodCache(clock=clock),
-    )
-    items = [{"food_id": rice.id, "serving_id": "rice-100g", "number_of_units": 100}]
-
-    async with Client(server) as client:
-        proposed = await draft(client, items)
-
-    assert proposed["meal"] == meal
-
-
-@pytest.mark.parametrize(
-    ("explicit_meal", "explicit_day", "meal", "day", "suggested", "previous_day"),
-    [
-        ("dinner", "2026-10-13", "dinner", "2026-10-13", False, False),
-        (None, "2026-10-13", "snacks", "2026-10-13", True, False),
-        ("breakfast", None, "breakfast", "2026-10-14", False, False),
-    ],
-)
-async def test_explicit_meal_and_diary_day_override_the_suggestions_and_use_that_days_totals(
+async def test_the_explicit_meal_and_diary_day_are_used_and_the_day_after_uses_that_days_totals(
     connect: Connect,
     fatsecret: FakeFatSecret,
     household: Household,
     clock: FakeClock,
     rice: Food,
-    explicit_meal: str | None,
+    explicit_meal: str,
     explicit_day: str | None,
-    meal: str,
     day: str,
-    suggested: bool,
-    previous_day: bool,
 ) -> None:
-    # 01:00 on the 14th in Warsaw.
     clock.now = datetime(
         year=2026,
         month=10,
@@ -502,11 +409,43 @@ async def test_explicit_meal_and_diary_day_override_the_suggestions_and_use_that
     async with connect("jakub") as client:
         proposed = await draft(client, items, meal=explicit_meal, diary_day=explicit_day)
 
-    assert proposed["meal"] == meal
+    assert proposed["meal"] == explicit_meal
     assert proposed["diary_day"] == day
-    assert proposed["meal_suggested"] is suggested
-    assert proposed["previous_day_suggested"] is previous_day
     assert proposed["day_after"]["consumed"]["kcal"] == (630 if day == "2026-10-13" else 130)
+
+
+async def test_new_items_without_a_meal_are_refused_and_the_error_asks_for_it(
+    connect: Connect, rice: Food
+) -> None:
+    items = [{"food_id": rice.id, "serving_id": "rice-100g", "number_of_units": 100}]
+
+    async with connect("jakub") as client:
+        result = await client.call_tool("draft_entries", {"items": items})
+
+    assert result.is_error
+    assert "need a meal" in str(result.content)
+
+
+async def test_a_draft_of_only_changes_needs_no_meal(
+    connect: Connect, fatsecret: FakeFatSecret, household: Household
+) -> None:
+    eaten = food_entry(
+        name="Breakfast",
+        meal=Meal.BREAKFAST,
+        diary_day=TODAY,
+        kcal=300,
+    )
+    removal = {"change": "remove", "diary_day": "2026-10-14", "food_entry_id": eaten.id}
+
+    fatsecret.add_food_entry(household.user("jakub").fatsecret, eaten)
+
+    async with connect("jakub") as client:
+        result = await client.call_tool("draft_entries", {"items": [removal]})
+
+    assert not result.is_error, result.content
+    assert result.structured_content is not None
+    assert result.structured_content["meal"] is None
+    assert len(result.structured_content["changes"]) == 1
 
 
 @pytest.mark.parametrize(
@@ -548,10 +487,76 @@ async def test_unknown_food_wrong_serving_and_invalid_or_implausible_amounts_are
     fatsecret.add_food(food)
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": items})
+        result = await client.call_tool("draft_entries", {"items": items, "meal": "lunch"})
 
     assert result.is_error
     assert message in str(result.content)
+
+
+async def test_a_food_item_in_grams_is_drafted_in_the_foods_gram_serving(
+    connect: Connect, rice: Food
+) -> None:
+    item = {"food_id": rice.id, "grams": 150}
+
+    async with connect("jakub") as client:
+        proposed = await draft(client, [item])
+
+    [drafted] = proposed["items"]
+
+    assert (drafted["serving_id"], drafted["number_of_units"]) == ("rice-100g", 150)
+    assert (drafted["amount"], drafted["kcal"]) == ("150 g", 195)
+
+
+async def test_grams_of_a_food_known_only_by_a_counted_serving_become_that_servings_units(
+    connect: Connect, nutella: Food
+) -> None:
+    item = {"food_id": nutella.id, "grams": 74}
+
+    async with connect("jakub") as client:
+        proposed = await draft(client, [item])
+
+    [drafted] = proposed["items"]
+
+    assert (drafted["serving_id"], drafted["number_of_units"]) == ("nutella-2-tbsp", 2)
+    assert (drafted["amount"], drafted["kcal"]) == ("74 g", 400)
+
+
+async def test_grams_of_a_food_without_a_serving_of_known_grams_are_refused(
+    connect: Connect, fatsecret: FakeFatSecret, rice: Food
+) -> None:
+    cup = replace(rice.servings[0], id="cup", metric_amount=240, metric_unit="ml", number_of_units=1)
+    milk = replace(rice, id="milk", name="Milk", servings=[cup])
+
+    fatsecret.add_food(milk)
+
+    async with connect("jakub") as client:
+        result = await client.call_tool(
+            "draft_entries", {"items": [{"food_id": milk.id, "grams": 100}], "meal": "lunch"}
+        )
+
+    assert result.is_error
+    assert "no Serving of known grams" in str(result.content)
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"food_id": "rice", "grams": 100, "serving_id": "rice-100g", "number_of_units": 100},
+        {"food_id": "rice", "grams": 100, "serving_id": "rice-100g"},
+        {"food_id": "rice", "grams": 100, "number_of_units": 100},
+        {"food_id": "rice"},
+        {"food_id": "rice", "serving_id": "rice-100g"},
+        {"food_id": "rice", "number_of_units": 100},
+    ],
+)
+async def test_a_food_item_gives_either_grams_or_a_serving_with_units_never_both_or_neither(
+    connect: Connect, fatsecret: FakeFatSecret, rice: Food, item: dict[str, Any]
+) -> None:
+    async with connect("jakub") as client:
+        result = await client.call_tool("draft_entries", {"items": [item], "meal": "lunch"})
+
+    assert result.is_error
+    assert fatsecret.requests == 0
 
 
 def decode_base64url(value: str) -> bytes:
@@ -631,7 +636,7 @@ async def test_the_draft_tool_is_read_only_has_a_result_schema_and_instructs_cla
     async with connect("jakub") as client:
         listed = (await client.list_tools()).tools
         tool = next(tool for tool in listed if tool.name == "draft_entries")
-        result = await client.call_tool("draft_entries", {"items": items})
+        result = await client.call_tool("draft_entries", {"items": items, "meal": "lunch"})
 
     [block] = result.content
     text = block.model_dump()["text"]
@@ -641,30 +646,28 @@ async def test_the_draft_tool_is_read_only_has_a_result_schema_and_instructs_cla
     assert tool.annotations.read_only_hint is True
     assert tool.output_schema is not None
     assert "ask the User" in (tool.description or "")
-    assert "previous Diary Day" in (tool.description or "")
+    assert "which Meal they are for" in (tool.description or "")
     assert json.loads(text) == result.structured_content
     assert "\n" not in text
     assert ": " not in text
 
 
 @pytest.mark.parametrize(
-    ("timezone", "day", "meal", "previous_day"),
+    ("timezone", "day"),
     [
-        ("Europe/Warsaw", "2026-10-15", "snacks", True),
-        ("UTC", "2026-10-14", "snacks", False),
-        ("America/Los_Angeles", "2026-10-14", "lunch", False),
-        ("Asia/Tokyo", "2026-10-15", "breakfast", False),
+        ("Europe/Warsaw", "2026-10-15"),
+        ("UTC", "2026-10-14"),
+        ("America/Los_Angeles", "2026-10-14"),
+        ("Asia/Tokyo", "2026-10-15"),
     ],
 )
-async def test_the_same_utc_instant_uses_each_users_timezone_for_meal_and_diary_day(
+async def test_the_same_utc_instant_uses_each_users_timezone_for_the_diary_day(
     household: Household,
     fatsecret: FakeFatSecret,
     clock: FakeClock,
     rice: Food,
     timezone: str,
     day: str,
-    meal: str,
-    previous_day: bool,
 ) -> None:
     settings = household.user("jakub").model_dump()
     settings["timezone"] = timezone
@@ -690,8 +693,7 @@ async def test_the_same_utc_instant_uses_each_users_timezone_for_meal_and_diary_
         proposed = await draft(client, items)
 
     assert proposed["diary_day"] == day
-    assert proposed["meal"] == meal
-    assert proposed["previous_day_suggested"] is previous_day
+    assert proposed["meal"] == "lunch"
     assert proposed["expires_at"] == "2026-10-14T22:30:00Z"
 
 
@@ -759,7 +761,7 @@ async def test_a_draft_too_long_to_confirm_is_refused_with_a_request_to_split_it
     items = [{"food_id": rice.id, "serving_id": "rice-100g", "number_of_units": 50}] * 20
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": items})
+        result = await client.call_tool("draft_entries", {"items": items, "meal": "lunch"})
 
     assert result.is_error
     assert "several Drafts" in str(result.content)
@@ -772,7 +774,9 @@ async def test_a_diary_day_over_a_year_back_or_over_a_week_ahead_is_refused_befo
     items = [{"food_id": rice.id, "serving_id": "rice-100g", "number_of_units": 100}]
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": items, "diary_day": diary_day})
+        result = await client.call_tool(
+            "draft_entries", {"items": items, "meal": "lunch", "diary_day": diary_day}
+        )
 
     assert result.is_error
     assert "a year back" in str(result.content)

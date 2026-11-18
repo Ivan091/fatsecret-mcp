@@ -75,7 +75,7 @@ Each entry in `FATSECRET_MCP_USERS` looks like this (shown across lines; the var
 
 Daily targets are in kcal and grams. They live here, not in the FatSecret app, and you can edit them by hand.
 
-`meal_hours` is optional and sets local meal start times for suggesting a meal. A meal lasts until the next start, including across midnight; times must differ. Omitted starts default to 04:00, 11:30, 16:00 and 21:00. Between midnight and 04:00, drafts ask whether to use Snacks on the previous day. A meal or day named in the conversation always wins over the suggestion.
+`meal_hours` is optional and accepted for compatibility with upstream configurations, but this fork doesn't use it: drafts never suggest a meal, and Claude always asks which meal new entries belong to ([fork](fork.md)). Its times must still differ.
 
 `connector_password_hash` and `session_generation` matter only over HTTP; see [connector](connector.md).
 

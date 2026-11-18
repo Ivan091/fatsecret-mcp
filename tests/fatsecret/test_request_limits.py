@@ -185,7 +185,7 @@ async def test_a_plate_of_seven_components_is_searched_and_drafted_without_a_bur
                 for component in components
             ]
             started = request_clock.elapsed
-            drafted = await client.call_tool("draft_entries", {"items": items})
+            drafted = await client.call_tool("draft_entries", {"items": items, "meal": "lunch"})
             draft_seconds = request_clock.elapsed - started
 
     sent_methods = [method for method, _ in sent]

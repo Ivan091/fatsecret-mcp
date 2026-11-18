@@ -102,6 +102,7 @@ async def test_a_tool_call_logs_no_secrets_and_no_nutrition(
                 "search_foods": {"description": "chicken breast"},
                 "draft_entries": {
                     "items": [{"food_id": "1641", "serving_id": "50321", "number_of_units": 150}],
+                    "meal": "lunch",
                 },
                 "confirm_draft": {"draft_id": recorded_skyr_draft(household.signing_key)},
             }

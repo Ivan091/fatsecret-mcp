@@ -14,7 +14,7 @@ from fatsecret_mcp.config.models import Household
 from fatsecret_mcp.domain.models import Food, FoodEntry, Meal, Nutrition, Serving
 from fatsecret_mcp.server import INSTRUCTIONS
 from tests.fatsecret.fake import FakeFatSecret, food_entry
-from tests.tools.test_draft_entries import decode_base64url, draft, kaiser_roll
+from tests.tools.test_draft_entries import decode_base64url, draft, kaiser_roll, meal_for
 
 pytestmark = pytest.mark.anyio
 Connect = Callable[[str], Client]
@@ -216,7 +216,7 @@ async def diary_entries(client: Client, day: date) -> list[dict[str, Any]]:
 async def draft_error(client: Client, items: list[dict[str, Any]], meal: str | None = None) -> str:
     arguments = {
         "items": items,
-        "meal": meal,
+        "meal": meal_for(items, meal),
     }
     result = await client.call_tool("draft_entries", arguments)
 
@@ -257,8 +257,6 @@ async def test_undo_of_a_three_entry_confirm_removes_them_with_one_read_and_thre
     assert removed_names == ["Chicken Thigh"] * 3
     assert undo["items"] == []
     assert undo["meal"] is None
-    assert undo["meal_suggested"] is False
-    assert undo["previous_day_suggested"] is False
     assert undo["diary_day"] is None
     assert undo["day_after"] is None
     assert undo["other_days_after"] == [
