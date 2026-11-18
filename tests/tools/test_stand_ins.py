@@ -149,7 +149,7 @@ def dzik_bar(**changes: Any) -> dict[str, Any]:
 
 
 async def draft(client: Client, items: list[dict[str, Any]]) -> dict[str, Any]:
-    result = await client.call_tool("draft_entries", {"items": items})
+    result = await client.call_tool("draft_entries", {"items": items, "meal": "lunch"})
 
     assert not result.is_error, result.content
     assert result.structured_content is not None
@@ -412,7 +412,7 @@ async def test_an_implausible_label_or_a_search_without_gram_servings_is_rejecte
     fatsecret.set_search_results("protein bites", [bites])
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": [dzik_bar(**changes)]})
+        result = await client.call_tool("draft_entries", {"items": [dzik_bar(**changes)], "meal": "lunch"})
 
     assert result.is_error
     assert message in str(result.content)
@@ -446,7 +446,7 @@ async def test_a_nutrition_label_item_without_its_label_says_the_label_is_missin
     del without_label["nutrition_label"]
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": [without_label]})
+        result = await client.call_tool("draft_entries", {"items": [without_label], "meal": "lunch"})
 
     assert result.is_error
     assert "nutrition_label" in str(result.content)
@@ -469,7 +469,7 @@ async def test_overlong_nutrition_label_text_is_refused_before_any_fatsecret_req
     item[field] = value
 
     async with connect("jakub") as client:
-        result = await client.call_tool("draft_entries", {"items": [item]})
+        result = await client.call_tool("draft_entries", {"items": [item], "meal": "lunch"})
 
     assert result.is_error
     assert "at most" in str(result.content)

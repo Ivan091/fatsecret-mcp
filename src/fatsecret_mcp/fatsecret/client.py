@@ -54,11 +54,15 @@ class FatSecretApi:
         self._http = http
         self._request_limits = request_limits if request_limits is not None else RequestLimits()
 
-    async def search_catalog(self, query: str, *, max_results: int | None = None) -> list[CatalogFood]:
+    async def search_catalog(
+        self, query: str, *, max_results: int | None = None, page: int = 0
+    ) -> list[CatalogFood]:
         params = {"search_expression": query}
 
         if max_results is not None:
             params["max_results"] = str(max_results)
+        if page:
+            params["page_number"] = str(page)
 
         body = await self._call("foods.search", params, None)
 

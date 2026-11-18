@@ -167,3 +167,42 @@ def _amount(serving: Serving, ratio: float) -> str:
         return f"{metric_amount:g} {serving.metric_unit}"
 
     return f"{ratio:g} x ({serving.description})"
+
+
+def gram_serving(food: Food) -> Serving | None:
+    """The Food's Serving to weigh an amount in grams: its own gram Serving, else any of known grams."""
+    weighed = [serving for serving in food.servings if _known_grams(serving)]
+    per_gram = [serving for serving in weighed if _one_unit_per_gram_or_ml(serving)]
+
+    if per_gram:
+        return max(per_gram, key=_units)
+
+    return weighed[0] if weighed else None
+
+
+def units_for_grams(serving: Serving, grams: float) -> float:
+    """The `serving`'s FatSecret units that weigh `grams`; the Serving must have known grams."""
+    assert serving.metric_amount is not None
+
+    return round(grams * serving.number_of_units / serving.metric_amount, UNIT_DECIMALS)
+
+
+def kcal_per_100_g(food: Food) -> float | None:
+    """The Food's kcal in 100 g, from the Serving `gram_serving` picks; None without a weight in grams."""
+    serving = gram_serving(food)
+
+    if serving is None or serving.metric_amount is None:
+        return None
+
+    return round(serving.nutrition.kcal * 100 / serving.metric_amount, 1)
+
+
+def _known_grams(serving: Serving) -> bool:
+    return (
+        serving.metric_unit == "g"
+        and serving.metric_amount is not None
+        and math.isfinite(serving.metric_amount)
+        and serving.metric_amount > 0
+        and math.isfinite(serving.number_of_units)
+        and serving.number_of_units > 0
+    )

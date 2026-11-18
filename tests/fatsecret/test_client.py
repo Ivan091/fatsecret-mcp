@@ -156,6 +156,30 @@ async def test_a_rejected_pin_does_not_quote_the_request_token() -> None:
     assert "Start the sign-in again" in str(raised.value)
 
 
+async def test_a_search_for_a_later_page_sends_its_page_number() -> None:
+    exchange = fixture("foods_search_single.json")
+    exchange["request"]["params"]["page_number"] = "2"
+    recorded = RecordedFatSecret()
+
+    recorded.serve(exchange)
+
+    async with recorded.client() as http:
+        foods = await FatSecretApi(CONSUMER, http).search_catalog("chicken breast", max_results=1, page=2)
+
+    assert len(foods) == 1
+
+
+async def test_a_search_for_the_first_page_sends_no_page_number() -> None:
+    recorded = RecordedFatSecret()
+
+    recorded.serve("foods_search_single.json")
+
+    async with recorded.client() as http:
+        foods = await FatSecretApi(CONSUMER, http).search_catalog("chicken breast", max_results=1, page=0)
+
+    assert len(foods) == 1
+
+
 async def test_a_single_food_entry_sent_as_a_bare_object_is_still_listed() -> None:
     # FatSecret documents this shape. Version 2 recorded a one-item list instead, so it's derived here.
     exchange = fixture("food_entries_get_single.json")

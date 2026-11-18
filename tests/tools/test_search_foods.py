@@ -73,11 +73,14 @@ async def test_search_returns_loggable_servings_and_nutrition(
     assert result.structured_content == {
         "status": "found",
         "attribution": ATTRIBUTION,
+        "page": 0,
+        "next_page": None,
         "matches": [
             {
                 "food_id": chicken.id,
                 "name": "Chicken Breast",
                 "brand": None,
+                "kcal_per_100g": 195,
                 "servings": [
                     {
                         "serving_id": "50321",
@@ -101,7 +104,13 @@ async def test_no_matches_is_an_explicit_normal_result_with_attribution(connect:
         result = await client.call_tool("search_foods", {"description": "qqzxvjkw"})
 
     assert not result.is_error
-    assert result.structured_content == {"status": "not_found", "matches": [], "attribution": ATTRIBUTION}
+    assert result.structured_content == {
+        "status": "not_found",
+        "matches": [],
+        "page": 0,
+        "next_page": None,
+        "attribution": ATTRIBUTION,
+    }
 
 
 @pytest.mark.parametrize("only_derived", [False, True])
@@ -148,6 +157,97 @@ async def test_search_returns_only_the_top_three_foods_at_four_requests(
     assert result.structured_content is not None
     assert [food["food_id"] for food in result.structured_content["matches"]] == ["0", "1", "2"]
     assert fatsecret.requests == 1 + 3
+
+
+async def test_kcal_per_100g_comes_from_the_serving_of_known_grams(
+    connect: Connect, fatsecret: FakeFatSecret, chicken: Food
+) -> None:
+    spread = Serving(
+        id="spread-2-tbsp",
+        description="2 tbsp",
+        metric_amount=37,
+        metric_unit="g",
+        number_of_units=1,
+        nutrition=Nutrition(kcal=200),
+    )
+    nutella = Food(id="nutella", name="Hazelnut Spread", brand="Nutella", servings=[spread])
+    unweighed = replace(spread, id="pinch", metric_amount=None, metric_unit=None)
+    pinch = Food(id="pinch", name="Pinch of Salt", brand=None, servings=[unweighed])
+    foods = [chicken, nutella, pinch]
+
+    for food in foods:
+        fatsecret.add_food(food)
+
+    fatsecret.set_search_results("food", foods)
+
+    async with connect("jakub") as client:
+        result = await client.call_tool("search_foods", {"description": "food"})
+
+    assert result.structured_content is not None
+    assert [match["kcal_per_100g"] for match in result.structured_content["matches"]] == [195, 540.5, None]
+
+
+@pytest.fixture
+def five_foods(fatsecret: FakeFatSecret, chicken: Food) -> list[Food]:
+    foods = [replace(chicken, id=str(index)) for index in range(5)]
+
+    for food in foods:
+        fatsecret.add_food(food)
+
+    fatsecret.set_search_results("chicken", foods)
+
+    return foods
+
+
+async def test_the_first_page_has_three_matches_and_points_to_the_next_page(
+    connect: Connect, five_foods: list[Food]
+) -> None:
+    async with connect("jakub") as client:
+        result = await client.call_tool("search_foods", {"description": "chicken"})
+
+    assert result.structured_content is not None
+    assert [match["food_id"] for match in result.structured_content["matches"]] == ["0", "1", "2"]
+    assert (result.structured_content["page"], result.structured_content["next_page"]) == (0, 1)
+
+
+async def test_the_last_partial_page_has_the_rest_and_no_next_page(
+    connect: Connect, five_foods: list[Food]
+) -> None:
+    async with connect("jakub") as client:
+        result = await client.call_tool("search_foods", {"description": "chicken", "page": 1})
+
+    assert result.structured_content is not None
+    assert [match["food_id"] for match in result.structured_content["matches"]] == ["3", "4"]
+    assert (result.structured_content["page"], result.structured_content["next_page"]) == (1, None)
+
+
+async def test_the_fifth_page_is_the_last_even_when_it_is_full(
+    connect: Connect, fatsecret: FakeFatSecret, chicken: Food
+) -> None:
+    foods = [replace(chicken, id=str(index)) for index in range(15)]
+
+    for food in foods:
+        fatsecret.add_food(food)
+
+    fatsecret.set_search_results("chicken", foods)
+
+    async with connect("jakub") as client:
+        result = await client.call_tool("search_foods", {"description": "chicken", "page": 4})
+
+    assert result.structured_content is not None
+    assert [match["food_id"] for match in result.structured_content["matches"]] == ["12", "13", "14"]
+    assert (result.structured_content["page"], result.structured_content["next_page"]) == (4, None)
+
+
+@pytest.mark.parametrize("page", [5, -1])
+async def test_a_page_outside_zero_to_four_is_refused_before_any_fatsecret_request(
+    connect: Connect, fatsecret: FakeFatSecret, chicken: Food, page: int
+) -> None:
+    async with connect("jakub") as client:
+        result = await client.call_tool("search_foods", {"description": "chicken breast", "page": page})
+
+    assert result.is_error
+    assert fatsecret.requests == 0
 
 
 async def test_a_food_no_longer_available_is_skipped(

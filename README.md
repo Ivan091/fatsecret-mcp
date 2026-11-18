@@ -16,13 +16,15 @@ https://github.com/user-attachments/assets/44dfd991-5434-47ad-8b84-bcad24415a1f
 
 A photo of dinner, the draft Claude proposes, a "yes", the day so far, and the new entry in the FatSecret app.
 
-fatsecret-mcp is a self-hosted [MCP](https://modelcontextprotocol.io) server. It connects Claude, or ChatGPT when the Operator turns it on, to your own [FatSecret](https://www.fatsecret.com) food diary, the one you see in the FatSecret app. Claude can read a day or a few weeks of it against your daily calorie and macro targets. It can find foods in the FatSecret catalog and draft entries from a description or a photo. Each draft shows the amounts, calories, macros, a suggested meal and how your day looks after adding it. When a packaged product isn't in the catalog, a photo of its nutrition label is enough. A wrong entry can be fixed or removed the same way, through a draft.
+fatsecret-mcp is a self-hosted [MCP](https://modelcontextprotocol.io) server. It connects Claude, or ChatGPT when the Operator turns it on, to your own [FatSecret](https://www.fatsecret.com) food diary, the one you see in the FatSecret app. Claude can read a day or a few weeks of it against your daily calorie and macro targets. It can find foods in the FatSecret catalog and draft entries from a description or a photo. Each draft shows the amounts, calories, macros, the meal you named and how your day looks after adding it. When a packaged product isn't in the catalog, a photo of its nutrition label is enough. A wrong entry can be fixed or removed the same way, through a draft.
 
 One server serves a household: a few people, each signed in with their own FatSecret account. There's no public instance, so you run your own.
 
 This project is unofficial. It is not affiliated with or endorsed by FatSecret, Anthropic or OpenAI, and it is not medical or dietary advice.
 
 [Powered by fatsecret Platform API](https://platform.fatsecret.com)
+
+> **This fork** ([Ivan091/fatsecret-mcp](https://github.com/Ivan091/fatsecret-mcp)) always asks for the meal, drafts foods in grams, offers the next search results for a bad match, and ships a Fly.io setup and a meal-photo skill. See [docs/fork.md](https://github.com/Ivan091/fatsecret-mcp/blob/main/docs/fork.md), the setup guide [docs/fly.md](https://github.com/Ivan091/fatsecret-mcp/blob/main/docs/fly.md) and the skill [docs/skill/](https://github.com/Ivan091/fatsecret-mcp/tree/main/docs/skill).
 
 ## What you can ask
 

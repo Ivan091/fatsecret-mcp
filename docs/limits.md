@@ -32,7 +32,7 @@ A draft's day can be at most a year back or a week ahead. An entry can be change
 
 ## Input sizes
 
-`draft_entries` takes items with `food_id`, `serving_id`, `number_of_units` and an optional `assumption`. Units follow the serving returned by `search_foods`: a serving described as "100 g" with 100 units needs 150 units for 150 g.
+`draft_entries` takes items with `food_id`, either `serving_id` with `number_of_units` or `grams`, and an optional `assumption`. Units follow the serving returned by `search_foods`: a serving described as "100 g" with 100 units needs 150 units for 150 g. With `grams`, the server picks the Food's gram serving and uses its `kcal_per_100g`.
 
 | Limit | Value |
 |---|---|

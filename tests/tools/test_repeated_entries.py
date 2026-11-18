@@ -13,7 +13,7 @@ from mcp import Client
 from fatsecret_mcp.config.models import Household
 from fatsecret_mcp.domain.models import CatalogFood, Food, FoodEntry, Meal, Nutrition, Serving
 from tests.fatsecret.fake import FakeFatSecret, food_entry
-from tests.tools.test_draft_entries import decode_base64url, draft
+from tests.tools.test_draft_entries import decode_base64url, draft, meal_for
 
 pytestmark = pytest.mark.anyio
 Connect = Callable[[str], Client]
@@ -125,7 +125,7 @@ def add_to_diary(fatsecret: FakeFatSecret, household: Household, entry: FoodEntr
 
 
 async def draft_error(client: Client, items: list[dict[str, Any]]) -> str:
-    result = await client.call_tool("draft_entries", {"items": items})
+    result = await client.call_tool("draft_entries", {"items": items, "meal": meal_for(items, None)})
 
     assert result.is_error
 
@@ -166,7 +166,6 @@ async def test_repeating_yesterdays_breakfast_reads_yesterday_once_and_searches_
     assert first["totals"] == {"kcal": 705, "protein": 39.5, "fat": 21, "carbohydrate": 88}
     # The source's Meal isn't copied: noon suggests lunch, and Claude asks about it.
     assert first["meal"] == "lunch"
-    assert first["meal_suggested"] is True
     assert first["diary_day"] == "2026-10-14"
 
 

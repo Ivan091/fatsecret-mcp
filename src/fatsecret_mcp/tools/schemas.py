@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 from mcp_types import CallToolResult, TextContent
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
+from fatsecret_mcp.domain.drafts import kcal_per_100_g
 from fatsecret_mcp.domain.models import (
     Confirmation,
     ConfirmedChange,
@@ -34,6 +35,7 @@ from fatsecret_mcp.domain.models import (
     Serving,
     StandIn,
 )
+from fatsecret_mcp.fatsecret.catalog import LAST_PAGE
 
 ATTRIBUTION = "Powered by fatsecret Platform API"
 
@@ -74,19 +76,41 @@ EnglishRendering = Annotated[
         description="English rendering for the catalog. Pass this for non-English input.",
     ),
 ]
+SearchPage = Annotated[
+    int,
+    Field(
+        ge=0,
+        le=LAST_PAGE,
+        description="The page of matches, zero-based: next_page from an earlier search when no match fits.",
+    ),
+]
 CatalogId = Annotated[str, Field(min_length=1, max_length=MAX_ID_LENGTH)]
 Assumption = Annotated[str | None, Field(max_length=MAX_ASSUMPTION_LENGTH)]
 
 
 class FoodDraftInput(BaseModel):
+    """A catalog Food, in a Serving's units or in grams."""
+
     model_config = ConfigDict(extra="forbid")
 
     food_id: CatalogId
-    serving_id: CatalogId
-    number_of_units: float = Field(
+    serving_id: CatalogId | None = Field(
+        default=None,
+        description="A Serving from search_foods, together with number_of_units. Omit when giving grams.",
+    )
+    number_of_units: float | None = Field(
+        default=None,
         gt=0,
         le=10000,
         allow_inf_nan=False,
+        description="FatSecret units of serving_id, scaled from the Serving's number_of_units.",
+    )
+    grams: float | None = Field(
+        default=None,
+        gt=0,
+        le=10000,
+        allow_inf_nan=False,
+        description="Grams eaten, instead of serving_id and number_of_units; the server picks the Serving.",
     )
     food_entry_name: str | None = Field(
         default=None,
@@ -96,6 +120,18 @@ class FoodDraftInput(BaseModel):
         'was matched in the US catalog, e.g. "Kajzerka (katalog USA)". Omit to use the catalog Food\'s name.',
     )
     assumption: Assumption = None
+
+    @model_validator(mode="after")
+    def _one_kind_of_amount(self) -> FoodDraftInput:
+        in_units = self.serving_id is not None and self.number_of_units is not None
+        partly_in_units = self.serving_id is not None or self.number_of_units is not None
+
+        if self.grams is not None and partly_in_units:
+            raise ValueError("Give either grams, or serving_id with number_of_units, not both.")
+        if self.grams is None and not in_units:
+            raise ValueError("Give grams, or serving_id with number_of_units.")
+
+        return self
 
 
 class NutritionLabelValues(BaseModel):
@@ -207,7 +243,7 @@ class EntryChangeDraftInput(BaseModel):
 
 
 # Fields only a Nutrition Label item has, so one missing its label is still told what it lacks.
-NUTRITION_LABEL_ITEM_FIELDS = {"product_name", "nutrition_label", "grams", "search_phrase"}
+NUTRITION_LABEL_ITEM_FIELDS = {"product_name", "nutrition_label", "search_phrase"}
 
 
 def _draft_item_kind(item: Any) -> str:
@@ -395,6 +431,9 @@ class FoodMatch(BaseModel):
     food_id: str
     name: str
     brand: str | None
+    kcal_per_100g: float | None = Field(
+        description="kcal in 100 g, the value a Food item drafted in grams uses; null without a weight."
+    )
     servings: list[FoodServing] = Field(
         description="Loggable Servings, with kcal and Macros per described Serving."
     )
@@ -407,6 +446,7 @@ class FoodMatch(BaseModel):
             food_id=food.id,
             name=food.name,
             brand=food.brand,
+            kcal_per_100g=kcal_per_100_g(food),
             servings=food_servings,
         )
 
@@ -414,6 +454,10 @@ class FoodMatch(BaseModel):
 class FoodSearch(BaseModel):
     status: Literal["found", "not_found"]
     matches: list[FoodMatch]
+    page: int = Field(description="This page of matches, zero-based.")
+    next_page: int | None = Field(
+        description="The page to ask for when none of these matches fits; null when there are no more."
+    )
     attribution: str = ATTRIBUTION
 
 
@@ -567,12 +611,12 @@ class OtherDayAfter(DayAfter):
 class FoodDraft(BaseModel):
     draft_id: str
     expires_at: datetime
-    meal: Meal | None = Field(description="The Meal of the new items; null when the Draft only has changes.")
-    meal_suggested: bool
+    meal: Meal | None = Field(
+        description="The Meal the User named for the new items; null when the Draft only has changes."
+    )
     diary_day: date | None = Field(
         description="The Diary Day of the new items; null when the Draft only has changes."
     )
-    previous_day_suggested: bool
     items: list[ProposedEntry] = Field(description="New Food Entries.")
     changes: list[ProposedChange] = Field(description="Changes to Food Entries, each before and after.")
     totals: Amounts = Field(description="The new items added up.")

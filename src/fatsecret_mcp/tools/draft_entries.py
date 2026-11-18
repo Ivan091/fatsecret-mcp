@@ -21,6 +21,8 @@ from fatsecret_mcp.domain.drafts import (
     draft_expiry,
     draft_item,
     draft_totals,
+    gram_serving,
+    units_for_grams,
 )
 from fatsecret_mcp.domain.entry_amounts import (
     amount_text,
@@ -37,7 +39,6 @@ from fatsecret_mcp.domain.entry_changes import (
     proposed_edit,
     proposed_removal,
 )
-from fatsecret_mcp.domain.meal_suggestion import ask_about_previous_day, suggest_meal
 from fatsecret_mcp.domain.models import (
     Additions,
     Draft,
@@ -77,6 +78,10 @@ from fatsecret_mcp.tools.schemas import (
 
 # The entries of each Diary Day that a Draft's items repeat from or change.
 DiaryDays = dict[date, list[FoodEntry]]
+MEAL_NEEDED = (
+    "New Food Entries need a meal. Ask the User which Meal they are for (breakfast, lunch, dinner or "
+    "snacks) and draft again with their answer. Never guess the Meal."
+)
 AdditionInput = FoodDraftInput | NutritionLabelDraftInput | DiaryEntryDraftInput
 
 
@@ -139,10 +144,13 @@ def register(
 
         A Draft holds at most 20 items: split a larger meal into several Drafts.
 
-        Include assumptions about estimated amounts. When the Draft has new items, always
-        ask the User whether the suggested Meal is correct. If previous_day_suggested is true, ask whether to
-        use Snacks on the previous Diary Day instead. meal and diary_day are for new items only. A
-        correction needs a new Draft with the explicit Meal or Diary Day.
+        A Food item in grams gives grams instead of serving_id and number_of_units; the server logs
+        that weight using the Food's kcal_per_100g from search_foods.
+
+        Include assumptions about estimated amounts. New items need the meal: always ask the User
+        which Meal they are for (breakfast, lunch, dinner or snacks) and pass their answer. Never
+        guess or infer it from the time of day. Confirm the Diary Day with the User too when it
+        isn't today. meal and diary_day are for new items only. A correction needs a new Draft.
         Nothing is written by this tool; a Draft expires after thirty minutes.
         """
         now = clock()
@@ -155,11 +163,10 @@ def register(
                 "meal and diary_day are for new Food Entries. To move an entry, set meal on its change item."
             )
 
+        if has_additions and meal is None:
+            raise ToolError(MEAL_NEEDED)
+
         day = diary_day or user_today
-        meal_suggested = has_additions and meal is None
-        previous_day_suggested = (
-            meal_suggested and diary_day is None and ask_about_previous_day(now, user.timezone)
-        )
         prepared: list[DraftItem] = []
         changes: list[DraftChange] = []
 
@@ -187,11 +194,11 @@ def register(
         additions = None
 
         if has_additions:
-            selected_meal = meal or suggest_meal(now, user.timezone, user.meal_hours.as_starts())
+            assert meal is not None
             entries_to_seal = [item.entry for item in prepared]
             additions = Additions(
                 entries=tuple(entries_to_seal),
-                meal=selected_meal,
+                meal=meal,
                 diary_day=day,
             )
 
@@ -222,9 +229,7 @@ def register(
             draft_id=draft_id,
             expires_at=sealed.expires_at,
             meal=additions.meal if additions is not None else None,
-            meal_suggested=meal_suggested,
             diary_day=additions.diary_day if additions is not None else None,
-            previous_day_suggested=previous_day_suggested,
             items=proposed_entries,
             changes=proposed_changes,
             totals=Amounts.of(added),
@@ -316,9 +321,9 @@ async def _prepared_item(
 
 async def _food_item(item: FoodDraftInput, fatsecret: FatSecretGateway, food_cache: FoodCache) -> DraftItem:
     """A catalog Food under the User's name for it, or under the catalog's name when none was given."""
-    catalog_food, serving = await _resolve_serving(item, fatsecret, food_cache)
+    catalog_food, serving, number_of_units = await _food_item_amount(item, fatsecret, food_cache)
     name = item.food_entry_name or catalog_food.name
-    drafted = draft_item(catalog_food, name, serving, item.number_of_units, item.assumption)
+    drafted = draft_item(catalog_food, name, serving, number_of_units, item.assumption)
 
     if name == catalog_food.name:
         return drafted
@@ -422,17 +427,44 @@ async def _stand_in(
     )
 
 
+async def _food_item_amount(
+    item: FoodDraftInput, fatsecret: FatSecretGateway, food_cache: FoodCache
+) -> tuple[Food, Serving, float]:
+    """The catalog Food, the Serving to log and its units, from the item's Serving or its grams."""
+    if item.grams is None:
+        catalog_food, serving = await _resolve_serving(item, fatsecret, food_cache)
+
+        assert item.number_of_units is not None
+
+        return catalog_food, serving, item.number_of_units
+
+    catalog_food = await _catalog_food(item.food_id, fatsecret, food_cache)
+    serving = gram_serving(catalog_food)
+
+    if serving is None:
+        raise ToolError(
+            "This Food has no Serving of known grams. Draft it with serving_id and number_of_units instead."
+        )
+
+    return catalog_food, serving, units_for_grams(serving, item.grams)
+
+
+async def _catalog_food(food_id: str, fatsecret: FatSecretGateway, food_cache: FoodCache) -> Food:
+    try:
+        return await food_cache.get_food(food_id, fatsecret)
+    except NotFound:
+        raise ToolError("Unknown Food: use the ids of a match from search_foods.") from None
+
+
 async def _resolve_serving(
     item: FoodDraftInput, fatsecret: FatSecretGateway, food_cache: FoodCache
 ) -> tuple[Food, Serving]:
     if item.serving_id == "0":
         raise ToolError("Serving 0 is derived and cannot be logged. Choose a Serving from search_foods.")
 
-    try:
-        catalog_food = await food_cache.get_food(item.food_id, fatsecret)
-    except NotFound:
-        raise ToolError("Unknown Food: use the ids of a match from search_foods.") from None
+    assert item.serving_id is not None
 
+    catalog_food = await _catalog_food(item.food_id, fatsecret, food_cache)
     serving = _serving_of(catalog_food, item.serving_id)
 
     if serving is None:

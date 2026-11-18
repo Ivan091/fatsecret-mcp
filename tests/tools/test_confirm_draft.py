@@ -74,7 +74,7 @@ async def draft(
 ) -> str:
     arguments = {
         "items": items,
-        "meal": meal,
+        "meal": meal or "lunch",
         "diary_day": diary_day,
     }
     result = await client.call_tool("draft_entries", arguments)
@@ -122,6 +122,20 @@ async def test_confirming_writes_each_item_to_the_draft_meal_and_day_and_returns
     ]
     assert confirmed["failure"] is None
     assert written == [("Cooked Rice", 150, Meal.DINNER), ("Cooked Rice", 50, Meal.DINNER)]
+
+
+async def test_confirming_a_draft_in_grams_writes_the_computed_serving_and_units(
+    connect: Connect, fatsecret: FakeFatSecret, household: Household, rice: Food
+) -> None:
+    async with connect("jakub") as client:
+        draft_id = await draft(client, [{"food_id": "rice", "grams": 150}], meal="dinner")
+        confirmed = await confirm(client, draft_id)
+
+    [written] = await fatsecret.list_food_entries(household.user("jakub").fatsecret, TODAY)
+
+    assert confirmed["status"] == "confirmed"
+    assert (written.serving_id, written.number_of_units, written.meal) == ("rice-100g", 150, Meal.DINNER)
+    assert round(written.nutrition.kcal) == 195
 
 
 async def test_confirming_writes_only_to_the_calling_users_food_diary(

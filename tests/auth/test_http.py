@@ -1058,7 +1058,7 @@ async def test_http_confirmation_belongs_to_one_user_and_survives_separate_reque
         http,
         jakub_token,
         "draft_entries",
-        {"items": [{"food_id": "rice", "serving_id": "rice-100g", "number_of_units": 150}]},
+        {"items": [{"food_id": "rice", "serving_id": "rice-100g", "number_of_units": 150}], "meal": "lunch"},
     )
     draft_id = proposal.json()["result"]["structuredContent"]["draft_id"]
     arguments = {"draft_id": draft_id}
